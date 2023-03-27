@@ -7,8 +7,9 @@ close all
 clc
 
 %Loading data
-filename=%'filename';
+filename='2022_05_16_ZEG';
 
+load(append(filename,'_labels.mat'),'q')
 opts = detectImportOptions(filename);                           
 opts.Delimiter=';';
 opts.DataLines=[1 Inf];
@@ -20,10 +21,12 @@ for j=[1 2 5 6 7 8 9 10 11 12 13]
 x=[x   str2double(string(data{:,j}))];
 end
 
+x(:,12) = q;
+
 clear data opts j
 
 % Loading classification model 
-load('DecisionTree_modell.mat')
+load('fittedDecisionTree.mat')
 
 %% Signal processing
 
@@ -88,11 +91,11 @@ end
 clear Lat Lon d j
 
 % Resampling
-x(:,12) = cumsum(dDist)*1000;
-xq = [0:0.2:max(x(:,12))]';
-[z, index] = unique(x(:,12));
+x(:,13) = cumsum(dDist)*1000;
+xq = [0:0.2:max(x(:,13))]';
+[z, index] = unique(x(:,13));
 
-for j = [1 2 3 4 5 6 7 8 9 10 11]
+for j = [1 2 3 4 5 6 7 8 9 10 11 12]
     v = x(:,j);
     x_sd(:,j) = interp1(z, v(index), xq);
 end
@@ -123,6 +126,8 @@ for j=[1 2 3 4 5 6 7 8]
     xs=x_sd(:,j);
     TT=timetable(seconds(t),xs);
     [P,F,T]=pspectrum(TT,'spectrogram');
+    figure
+    pspectrum(TT,'spectrogram');
     sP=sum(P);
     xDesired = linspace(seconds(min(T)),seconds(max(T)),length(t))';
     Pv{j} = interp1(T,P',seconds(xDesired));
@@ -144,14 +149,37 @@ end
 % PCA
 [coefs,score,latent,tsquared,explained] = pca(pow2db(Xt(1:1:end,[1 2 3 4 5 6 7 8])));
 
-%% Predict road quality classes
+%% Predict road quality classes and metrics
 
 [predicted,score_predict] = predict(tree_pca_v2,score);
 predictedFilt = round(movmean(predicted,450),0);
 
 % Plot the results on a map
-figure(1)
+figure
 GT = table(Shape,predictedFilt);
 gmap = geoplot(GT,ColorVariable="predictedFilt",MarkerSize=15);
 geobasemap streets-light
 colorbar
+
+% confusion matrix
+Y = round(x_sd(:,12),0);
+predicted = round(predicted,0);
+Y = round(Y,0);
+C = confusionmat(Y,predicted);
+figure
+cm = confusionchart(C,'RowSummary','row-normalized');
+
+% meroszamok
+rateOfClasses = tabulate(categorical(Y)); %osztalyok aranya
+accuracey = sum(diag(C))/length(Y); %accuracy, foatlo aranya
+
+%scree plot
+figure
+pareto(explained,1);
+xlabel('Principal Component');
+ylabel('Variance Explained (%)');
+
+%biplot
+figure
+vbls = {'Acc1','Acc2','IMU acc x','IMU acc y','IMU acc z','IMU gyro x','IMU gyro y','IMU gyro z'}; % Labels for the variables
+biplot(coefs(:,1:2),'Scores',score(:,1:2),'VarLabels',vbls);
